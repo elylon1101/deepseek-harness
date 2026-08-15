@@ -3,8 +3,19 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { LocaleKeysOf } from '@deepseek-ai/dsh-client-ui-slots'
 import { TrajectoryTable } from '../src/client/TrajectoryTable.tsx'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
+import { en, type TrajectoryKey } from '../src/client/locales.ts'
+
+/** English dictionary seat mirroring the framework-injected `t` (param-substituting). */
+const t = (key: LocaleKeysOf<'trajectory'>, params?: Record<string, unknown>): string => {
+  const value = en[key as TrajectoryKey] ?? key
+  return params === undefined
+    ? value
+    : value.replace(/\{(\w+)\}/g, (match, name: string) =>
+      name in params ? String(params[name]) : match)
+}
 
 afterEach(() => {
   cleanup()
@@ -62,6 +73,7 @@ const FOLD_PROPS = {
   onToggleTurn: () => {},
   collapsedAssistants: new Set<string>(),
   onToggleAssistant: () => {},
+  t,
 }
 
 describe('TrajectoryTable', () => {

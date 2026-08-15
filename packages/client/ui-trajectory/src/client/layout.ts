@@ -13,11 +13,13 @@ import type {
   ToolCallBlock,
   ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   TrajectoryCellProps,
   TrajectorySourceBlock,
 } from './trajectory-record.ts'
 import { formatElapsedSeconds } from './trajectory-record.ts'
+import type { NS } from './locales.ts'
 
 /** One Message or Step group inside a turn. */
 export interface TrajectoryGroupModel {
@@ -40,6 +42,8 @@ export interface TrajectoryLayoutInput {
   runningCalls: ConversationSnapshot['runningCalls']
   requests?: readonly RequestView[]
   callSchemas?: RequestInspectionSnapshot['callSchemas']
+  /** Namespace translate seat producing the localized group titles and cell texts. */
+  t: TranslateNS<typeof NS>
 }
 
 interface UsageLike {
@@ -137,7 +141,7 @@ function inputCellDetail(node: InputNode): Pick<
  */
 export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly TrajectoryTurnModel[] {
   const {
-    nodes, eventLocations, partial, runningCalls, requests = [], callSchemas,
+    nodes, eventLocations, partial, runningCalls, requests = [], callSchemas, t,
   } = input
   const resultByCall = indexResults(nodes)
   const callById = new Map<string, ToolCallBlock>(resultByCall)
@@ -171,16 +175,17 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
   const pushMessage = (turn: number, laid: LaidCell) => {
     const groups = bucket(turn).groups
     const last = groups.at(-1)
-    if (last?.title === 'Message') {
+    const title = t('group.message')
+    if (last?.title === title) {
       last.laid.push(laid)
       return
     }
-    groups.push({ title: 'Message', laid: [laid] })
+    groups.push({ title, laid: [laid] })
   }
   const pushStep = (turn: number, step: number, laid: readonly LaidCell[]) => {
     if (laid.length === 0) return
     const groups = bucket(turn).groups
-    const title = `Step ${step}`
+    const title = t('group.step', { step })
     const existing = groups.find(group => group.title === title)
     if (existing !== undefined) {
       existing.laid.push(...laid)
@@ -191,7 +196,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
   const pushStepInput = (turn: number, step: number, laid: readonly LaidCell[]) => {
     if (laid.length === 0) return
     const groups = bucket(turn).groups
-    const title = `Step ${step}`
+    const title = t('group.step', { step })
     const existing = groups.find(group => group.title === title)
     if (existing === undefined) {
       groups.push({ title, laid: [...laid] })
@@ -286,7 +291,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         cell: {
           index: ++index,
           kind: 'system',
-          text: promptChangeLabel(change),
+          text: promptChangeLabel(t, change),
           sourceSeq: change.seq,
           ...(request.prompt === undefined ? {} : { promptDetail: request.prompt }),
           ...(change.previous === undefined
@@ -309,11 +314,11 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         index: ++index,
         kind: 'compacted',
         text: request.status === 'running'
-          ? 'Compacting context…'
+          ? t('cell.compacting')
           : request.status === 'error'
-            ? request.error ?? 'Compaction failed'
+            ? request.error ?? t('cell.compactionFailed')
             : request.summary === undefined
-              ? 'Context compacted'
+              ? t('cell.contextCompacted')
               : '',
         ...(request.status === 'complete' && request.summary !== undefined
           ? previewContentProperty(request.summary)
@@ -338,7 +343,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       attachUsage(cell, request.usage as UsageLike | undefined)
       const compaction: TurnBucket = {
         groups: [{
-          title: `Compaction ${request.startSeq}`,
+          title: t('group.compaction', { seq: request.startSeq }),
           laid: [{
             absTime: finiteTime(request.startedAt),
             cell,
@@ -388,8 +393,8 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       continue
     }
     if (node.kind === 'assistant') {
-      const laidList = withSubCalls(
-        expandAssistant(node, index + 1, prevAbsTime, resultByCall, callStartById, callById),
+      const laidList = withSubCalls(t,
+        expandAssistant(t, node, index + 1, prevAbsTime, resultByCall, callStartById, callById),
       )
       if (node.step > 0) pushStep(node.turn, node.step, laidList)
       else for (const laid of laidList) pushMessage(node.turn, laid)
@@ -421,7 +426,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     if (node.kind === 'tool-result') {
       if (!emittedCallIds.has(node.callId)) {
         const toolName = node.call?.name
-        const resultPreview = summarizeResult(node)
+        const resultPreview = summarizeResult(t, node)
         const laidList: LaidCell[] = [{
           absTime: finiteTime(node.callTime ?? node.time),
           ...(toolName !== undefined ? { toolName } : {}),
@@ -435,7 +440,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
               ? summarizeCall(node.call.name, node.call.argsRaw)
               : resultAsText(resultPreview)),
             ...(node.call !== null ? { inputDetail: node.call.argsRaw } : {}),
-            outputDetail: detailResult(node),
+            outputDetail: detailResult(t, node),
             outputBlocks: node.content.map(block => sourceBlock(block)),
             ...resultPreview,
             callId: node.callId,
@@ -444,7 +449,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
             startedAt: finiteTime(node.callTime),
           },
         }]
-        for (const laid of expandSubCalls(node.subCalls, index)) {
+        for (const laid of expandSubCalls(t, node.subCalls, index)) {
           laidList.push(laid)
           index = laid.cell.index
         }
@@ -459,7 +464,8 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       kind: 'assistant', seq: Number.MAX_SAFE_INTEGER, time: 0,
       turn: partial.turn, step: partial.step, blocks: partial.blocks,
     }
-    const laidList = withSubCalls(expandAssistant(
+    const laidList = withSubCalls(t, expandAssistant(
+      t,
       fake,
       index + 1,
       prevAbsTime,
@@ -492,7 +498,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         startedAt: finiteTime(call.time),
       },
     }]
-    for (const laid of expandSubCalls(call.subCalls, index)) {
+    for (const laid of expandSubCalls(t, call.subCalls, index)) {
       laidList.push(laid)
       index = laid.cell.index
     }
@@ -530,6 +536,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
  * @returns The original layout without a partial, otherwise a layout sharing every unaffected turn.
  */
 export function appendTrajectoryPartialLayout(
+  t: TranslateNS<typeof NS>,
   turns: readonly TrajectoryTurnModel[],
   partial: ConversationSnapshot['partial'],
   lastIndex: number,
@@ -539,6 +546,7 @@ export function appendTrajectoryPartialLayout(
     nodes: [],
     partial,
     runningCalls: [],
+    t,
   }).at(0)
   if (partialTurn === undefined) return turns
   const streamed: TrajectoryTurnModel = {
@@ -664,6 +672,7 @@ function finiteTime(time: number | null | undefined): number | null {
 }
 
 function expandAssistant(
+  t: TranslateNS<typeof NS>,
   node: AssistantMessageNode,
   startIndex: number,
   prevAbsTime: number | null,
@@ -697,7 +706,7 @@ function expandAssistant(
     sourceSeq: node.seq,
     text: messageText !== '' || thinkingText !== ''
       ? ''
-      : summarizeAssistantActivity(node.blocks),
+      : summarizeAssistantActivity(t, node.blocks),
     ...(messageText !== ''
       ? { previewMarkdown: messageText }
       : thinkingText !== ''
@@ -729,7 +738,7 @@ function expandAssistant(
       : durationSeconds(result.time, result.callTime)
     const callAbs = finiteTime(callStarts.get(block.callId))
     const call = calls.get(block.callId)
-    const resultPreview = result === undefined ? undefined : summarizeResult(result)
+    const resultPreview = result === undefined ? undefined : summarizeResult(t, result)
     out.push({
       absTime: callAbs,
       toolName: block.name,
@@ -742,7 +751,7 @@ function expandAssistant(
         callId: block.callId,
         ...(result !== undefined
           ? {
-            outputDetail: detailResult(result),
+            outputDetail: detailResult(t, result),
             outputBlocks: result.content.map(block => sourceBlock(block)),
             ...resultPreview,
             isError: result.isError,
@@ -756,23 +765,23 @@ function expandAssistant(
   return out
 }
 
-function summarizeAssistantActivity(blocks: readonly AssistantBlock[]): string {
+function summarizeAssistantActivity(t: TranslateNS<typeof NS>, blocks: readonly AssistantBlock[]): string {
   const tools = new Map<string, number>()
   for (const block of blocks) {
     if (block.kind !== 'tool-call') continue
     tools.set(block.name, (tools.get(block.name) ?? 0) + 1)
   }
   if (tools.size > 0) {
-    return 'Tool call only'
+    return t('cell.toolCallOnly')
   }
   return ''
 }
 
-function promptChangeLabel(change: RequestPromptChange): string {
-  if (change.kind === 'initial') return 'Initial System Prompt'
-  if (change.kind === 'system') return 'System Prompt Updated'
-  if (change.kind === 'tools') return 'Tools Updated'
-  return 'System Prompt and Tools Updated'
+function promptChangeLabel(t: TranslateNS<typeof NS>, change: RequestPromptChange): string {
+  if (change.kind === 'initial') return t('prompt.initial')
+  if (change.kind === 'system') return t('prompt.updated')
+  if (change.kind === 'tools') return t('prompt.toolsUpdated')
+  return t('prompt.bothUpdated')
 }
 
 function assistantSourceBlock(block: AssistantBlock): TrajectorySourceBlock {
@@ -975,13 +984,13 @@ function collectCallIds(
 
 
 /** Interleave each tool cell's nested child calls right after it, reindexing followers. */
-function withSubCalls(laidList: LaidCell[]): LaidCell[] {
+function withSubCalls(t: TranslateNS<typeof NS>, laidList: LaidCell[]): LaidCell[] {
   if (!laidList.some(laid => laid.subCalls !== undefined && laid.subCalls.length > 0)) return laidList
   const out: LaidCell[] = []
   let index = laidList[0] !== undefined ? laidList[0].cell.index - 1 : 0
   for (const laid of laidList) {
     out.push({ ...laid, cell: { ...laid.cell, index: ++index } })
-    for (const sub of expandSubCalls(laid.subCalls, index)) {
+    for (const sub of expandSubCalls(t, laid.subCalls, index)) {
       out.push(sub)
       index = sub.cell.index
     }
@@ -991,6 +1000,7 @@ function withSubCalls(laidList: LaidCell[]): LaidCell[] {
 
 /** Sub-dispatch cells for one run_code parent, in start order (running = null duration). */
 function expandSubCalls(
+  t: TranslateNS<typeof NS>,
   subs: readonly ToolCallBlock[] | undefined,
   startIndex: number,
 ): LaidCell[] {
@@ -999,7 +1009,7 @@ function expandSubCalls(
   let index = startIndex
   for (const sub of subs) {
     const settled = 'kind' in sub
-    const resultPreview = settled ? summarizeResult(sub) : undefined
+    const resultPreview = settled ? summarizeResult(t, sub) : undefined
     const laid: LaidCell = {
       absTime: settled ? finiteTime(sub.callTime ?? sub.time) : finiteTime(sub.time),
       toolName: settled ? sub.call?.name ?? sub.callId : sub.name,
@@ -1018,7 +1028,7 @@ function expandSubCalls(
           : { inputDetail: sub.argsRaw }),
         ...(settled
           ? {
-            outputDetail: detailResult(sub),
+            outputDetail: detailResult(t, sub),
             outputBlocks: sub.content.map(block => sourceBlock(block)),
             ...resultPreview,
             isError: sub.isError,
@@ -1033,7 +1043,7 @@ function expandSubCalls(
       },
     }
     out.push(laid)
-    for (const child of expandSubCalls(sub.subCalls, index)) {
+    for (const child of expandSubCalls(t, sub.subCalls, index)) {
       out.push(child)
       index = child.cell.index
     }
@@ -1052,17 +1062,18 @@ function summarizeCall(
 }
 
 function summarizeResult(
+  t: TranslateNS<typeof NS>,
   node: ToolResultNode,
 ): Pick<TrajectoryCellProps, 'result' | 'resultPreviewMarkdown'> {
   if (node.isError) {
-    return { result: node.error?.code ?? 'error' }
+    return { result: node.error?.code ?? t('cell.error') }
   }
   for (const block of node.content) {
     if (block.type === 'text' && typeof block.text === 'string' && block.text !== '') {
       return { result: '', resultPreviewMarkdown: block.text }
     }
   }
-  return { result: 'No output' }
+  return { result: t('cell.noOutput') }
 }
 
 function resultAsText(
@@ -1076,10 +1087,10 @@ function resultAsText(
   }
 }
 
-function detailResult(node: ToolResultNode): string {
+function detailResult(t: TranslateNS<typeof NS>, node: ToolResultNode): string {
   if (node.isError) {
     return node.error === undefined
-      ? 'error'
+      ? t('cell.error')
       : `${node.error.name}: ${node.error.code}`
   }
   const text = node.content
@@ -1091,7 +1102,7 @@ function detailResult(node: ToolResultNode): string {
     node.content.length === 0
     || node.content.every(block =>
       block.type === 'text' && (typeof block.text !== 'string' || block.text === ''))
-  ) return 'No output'
+  ) return t('cell.noOutput')
   return JSON.stringify(node.content, null, 2)
 }
 

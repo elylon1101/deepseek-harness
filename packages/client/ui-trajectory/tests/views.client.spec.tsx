@@ -49,6 +49,15 @@ const sessionSnapshots = new WeakMap<SlotRegistry, SnapshotStore<ConversationSna
 const tConversation: ConversationSessionHeaderProps['t'] =
   key => (conversationZh as Record<string, string>)[key] ?? key
 
+/** zh-backed locale seat mirroring the mount path (param-substituting). */
+const tZh = (key: LocaleKeysOf<'trajectory'>, params?: Record<string, unknown>): string => {
+  const value = zh[key as TrajectoryKey] ?? key
+  return params === undefined
+    ? value
+    : value.replace(/\{(\w+)\}/g, (match, name: string) =>
+      name in params ? String(params[name]) : match)
+}
+
 afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
 // view cannot rehydrate into the next.
@@ -167,7 +176,7 @@ function standaloneProps(
     useWorkspaces: emptyWorkspaces(),
     useProjection: (() => undefined) as never,
     // The locale seat the outlet would inject for the declared namespace.
-    t: (key: LocaleKeysOf<'trajectory'>) => zh[key as TrajectoryKey] ?? key,
+    t: tZh,
   } as unknown as ConvViewProps & { t: (key: LocaleKeysOf<'trajectory'>) => string }
 }
 
@@ -248,7 +257,7 @@ function mount(slots: SlotRegistry, nodes: ConversationSnapshot['nodes'] = NODES
           loadOlder: trajectory.loadOlder,
           setActualDuration: trajectory.setActualDuration,
           useDuration: bindSnapshotSelector(trajectory.hooks.duration),
-          t: (key: TrajectoryKey) => zh[key],
+          t: tZh,
         }
       })()
       : injected
@@ -369,12 +378,12 @@ describe('tab switching in ConversationRoot', () => {
     expect(view.container.querySelectorAll('tr[data-turn-start="true"]')).toHaveLength(2)
     expect(screen.queryByRole('columnheader')).toBeNull()
     expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
-    expect(screen.getByRole('region', { name: 'Trajectory timeline' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: '轨迹时间线' })).toBeTruthy()
     expect(view.container.querySelector('[data-conversation-composer-overlay]')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse turns' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起轮次' }))
     expect(view.container.querySelector('[data-collapsed-summary="turn"]')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Expand turns' }))
-    expect(screen.getByRole('row', { name: /USER/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '展开轮次' }))
+    expect(screen.getByRole('row', { name: /用户/ })).toBeTruthy()
     expect(screen.queryByTestId('chat-body')).toBeNull()
     expect(b.loadOlder).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
@@ -397,14 +406,14 @@ describe('tab switching in ConversationRoot', () => {
     mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
 
-    fireEvent.keyDown(screen.getByRole('row', { name: /TOOL/ }), { key: 'Enter' })
-    expect(screen.getByRole('complementary', { name: 'Event details' })).toBeTruthy()
-    expect(screen.getByText('Turn 1 · Step 1')).toBeTruthy()
-    expect(screen.getByText('Completed')).toBeTruthy()
-    expect(screen.getByRole('tab', { name: 'Result' })).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('row', { name: /工具/ }), { key: 'Enter' })
+    expect(screen.getByRole('complementary', { name: '事件详情' })).toBeTruthy()
+    expect(screen.getByText('轮次 1 · 步骤 1')).toBeTruthy()
+    expect(screen.getByText('已完成')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: '结果' })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close details' }))
-    expect(screen.queryByRole('complementary', { name: 'Event details' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
+    expect(screen.queryByRole('complementary', { name: '事件详情' })).toBeNull()
   })
 
   it('labels a standalone compaction as between-turn work in the ledger and inspector', async () => {
@@ -434,11 +443,11 @@ describe('tab switching in ConversationRoot', () => {
     const view = mount(b.slots, nodes)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
 
-    expect(screen.getByText('Between turns')).toBeTruthy()
+    expect(screen.getByText('轮次之间')).toBeTruthy()
     expect(view.container.textContent).not.toContain('Turn null')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Request #2 · Compaction' }))
-    expect(screen.getByText('Compaction · Between turns')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '请求 #2 · 压缩' }))
+    expect(screen.getByText('压缩 · 轮次之间')).toBeTruthy()
     expect(view.container.textContent).not.toContain('Turn null')
   })
 
@@ -486,31 +495,31 @@ describe('tab switching in ConversationRoot', () => {
     mount(b.slots, nodes)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
 
-    const firstRequest = screen.getByRole('button', { name: 'Request #2 · Compaction' })
-    const secondRequest = screen.getByRole('button', { name: 'Request #4 · Compaction' })
+    const firstRequest = screen.getByRole('button', { name: '请求 #2 · 压缩' })
+    const secondRequest = screen.getByRole('button', { name: '请求 #4 · 压缩' })
     const firstSection = firstRequest.closest('tr')?.querySelector('span')
     const secondSection = secondRequest.closest('tr')?.querySelector('span')
-    expect(firstSection?.textContent).toBe('Between turns')
-    expect(secondSection?.textContent).toBe('Between turns')
+    expect(firstSection?.textContent).toBe('轮次之间')
+    expect(secondSection?.textContent).toBe('轮次之间')
 
     fireEvent.click(firstRequest)
     expect(firstSection?.className).toMatch(/turnLabelActive/)
     expect(secondSection?.className).not.toMatch(/turnLabelActive/)
-    expect(screen.getByText('Request #2')).toBeTruthy()
-    expect(screen.getByText('Compaction · Between turns')).toBeTruthy()
+    expect(screen.getByText('请求 #2')).toBeTruthy()
+    expect(screen.getByText('压缩 · 轮次之间')).toBeTruthy()
 
     fireEvent.click(secondRequest)
     expect(firstSection?.className).not.toMatch(/turnLabelActive/)
     expect(secondSection?.className).toMatch(/turnLabelActive/)
-    expect(screen.getByText('Request #4')).toBeTruthy()
-    expect(screen.getByText('Compaction · Between turns')).toBeTruthy()
+    expect(screen.getByText('请求 #4')).toBeTruthy()
+    expect(screen.getByText('压缩 · 轮次之间')).toBeTruthy()
   })
 
   it('dragging the overview focuses overlapping records without filtering the ledger', async () => {
     const b = await bench()
     mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    const plot = screen.getByLabelText('时间线概览；水平拖动以聚焦事件')
     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
       toJSON: () => ({}),
@@ -519,19 +528,19 @@ describe('tab switching in ConversationRoot', () => {
     fireEvent.pointerMove(plot, { clientX: 95, pointerId: 1 })
     fireEvent.pointerUp(plot, { clientX: 95, pointerId: 1 })
 
-    expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
+    expect(screen.getByRole('row', { name: /用户/ }).getAttribute('data-timeline-focus'))
       .toBe('outside')
 
     const tablePane = screen.getByRole('table').parentElement
     expect(tablePane).not.toBeNull()
     fireEvent.click(tablePane as HTMLElement)
-    expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
+    expect(screen.getByRole('row', { name: /用户/ }).getAttribute('data-timeline-focus'))
       .toBeNull()
 
     fireEvent.pointerDown(plot, { button: 0, clientX: 55, pointerId: 2 })
     fireEvent.pointerMove(plot, { clientX: 95, pointerId: 2 })
     fireEvent.pointerUp(plot, { clientX: 95, pointerId: 2 })
-    expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
+    expect(screen.getByRole('row', { name: /用户/ }).getAttribute('data-timeline-focus'))
       .toBe('outside')
     fireEvent.contextMenu(plot)
     expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
@@ -542,7 +551,7 @@ describe('tab switching in ConversationRoot', () => {
     const b = await bench()
     const view = mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    const plot = screen.getByLabelText('时间线概览；水平拖动以聚焦事件')
     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
       toJSON: () => ({}),
@@ -573,7 +582,7 @@ describe('tab switching in ConversationRoot', () => {
     )
     expect(selectedRow?.getAttribute('aria-selected')).toBe('true')
     expect(view.container.querySelector('tr[data-timeline-focus]')).toBeNull()
-    expect(screen.getByRole('complementary', { name: 'Event details' })).toBeTruthy()
+    expect(screen.getByRole('complementary', { name: '事件详情' })).toBeTruthy()
   })
 
   it('empty window keeps the toolbar and reports no timing data', async () => {
@@ -581,12 +590,12 @@ describe('tab switching in ConversationRoot', () => {
     mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
     expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
-    expect(screen.getByText('No timing data')).toBeTruthy()
+    expect(screen.getByText('暂无时间数据')).toBeTruthy()
     expect(screen.getByRole<HTMLButtonElement>('button', {
-      name: 'Collapse turns',
+      name: '收起轮次',
     }).disabled).toBe(false)
     expect(screen.getByRole<HTMLButtonElement>('button', {
-      name: 'Collapse calls',
+      name: '收起调用',
     }).disabled).toBe(false)
     expect(screen.queryByRole('row')).toBeNull()
     expect(screen.queryByText(/turns ·/)).toBeNull()
@@ -647,6 +656,7 @@ describe('timeline projection', () => {
           mode="duration"
           range={null}
           onRangeChange={vi.fn()}
+          t={tZh}
         />,
       )
       const span = view.container.querySelector<HTMLElement>(
@@ -661,9 +671,9 @@ describe('timeline projection', () => {
       expect(view.container.querySelector('[role="tooltip"]')).toBeNull()
       act(() => { vi.advanceTimersByTime(1) })
       const tooltip = view.container.querySelector<HTMLElement>('[role="tooltip"]')
-      expect(tooltip?.textContent).toContain('Total 2,000 ms')
+      expect(tooltip?.textContent).toContain('总计 2,000 ms')
       expect(tooltip?.textContent).toContain('TTFT 500 ms')
-      expect(tooltip?.textContent).toContain('Decoding 1,500 ms')
+      expect(tooltip?.textContent).toContain('解码 1,500 ms')
     } finally {
       vi.useRealTimers()
     }
@@ -679,22 +689,23 @@ describe('timeline projection', () => {
         hasEarlierRecords
         onLoadEarlier={onLoadEarlier}
         onRangeChange={vi.fn()}
+        t={tZh}
       />,
     )
 
-    const boundary = screen.getByLabelText('Load earlier history')
+    const boundary = screen.getByLabelText('加载更早历史')
     expect(boundary.getAttribute('data-earlier-history')).not.toBeNull()
-    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    const plot = screen.getByLabelText('时间线概览；水平拖动以聚焦事件')
     fireEvent.pointerMove(plot, { clientX: 50, pointerId: 1 })
     expect(view.container.querySelector('[data-timeline-hover-line]')).toBeTruthy()
     fireEvent.pointerEnter(boundary)
     expect(view.container.querySelector('[data-timeline-hover-line]')).toBeNull()
     fireEvent.focus(boundary)
     expect(screen.getByRole('tooltip').textContent)
-      .toContain('Click to load earlier history')
+      .toContain('点击加载更早历史')
     fireEvent.click(boundary)
     expect(onLoadEarlier).toHaveBeenCalledOnce()
-    expect(screen.getByLabelText('Loading earlier history')).toBeTruthy()
+    expect(screen.getByLabelText('正在加载更早历史…')).toBeTruthy()
 
     view.rerender(
       <TrajectoryTimeline
@@ -702,10 +713,11 @@ describe('timeline projection', () => {
         mode="sequence"
         range={null}
         onRangeChange={vi.fn()}
+        t={tZh}
       />,
     )
-    expect(screen.queryByLabelText('Load earlier history')).toBeNull()
-    expect(screen.queryByLabelText('Loading earlier history')).toBeNull()
+    expect(screen.queryByLabelText('加载更早历史')).toBeNull()
+    expect(screen.queryByLabelText('正在加载更早历史…')).toBeNull()
   })
 
   it('cancels native scrolling across the timeline while zooming', () => {
@@ -715,16 +727,17 @@ describe('timeline projection', () => {
         mode="sequence"
         range={null}
         onRangeChange={vi.fn()}
+        t={tZh}
       />,
     )
-    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    const plot = screen.getByLabelText('时间线概览；水平拖动以聚焦事件')
     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
       x: 44, y: 0, left: 44, top: 0, right: 144, bottom: 50, width: 100, height: 50,
       toJSON: () => ({}),
     })
 
     expect(fireEvent.wheel(plot, { clientX: 94, deltaY: -100 })).toBe(false)
-    expect(fireEvent.wheel(screen.getByText('Input'), {
+    expect(fireEvent.wheel(screen.getByText('输入'), {
       clientX: 20,
       deltaY: -100,
     })).toBe(false)
@@ -737,6 +750,7 @@ describe('timeline projection', () => {
         mode="sequence"
         range={null}
         onRangeChange={vi.fn()}
+        t={tZh}
       />,
     )
     const span = view.container.querySelector<HTMLElement>('[data-timeline-span]')
@@ -764,6 +778,7 @@ describe('timeline projection', () => {
         mode="sequence"
         range={null}
         onRangeChange={vi.fn()}
+        t={tZh}
       />,
     )
 
@@ -782,16 +797,17 @@ describe('timeline projection', () => {
         range={{ start: 2, end: 4 }}
         hasEarlierRecords
         onRangeChange={onRangeChange}
+        t={tZh}
       />,
     )
-    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
-    expect(screen.getByLabelText('Load earlier history')).toBeTruthy()
+    const plot = screen.getByLabelText('时间线概览；水平拖动以聚焦事件')
+    expect(screen.getByLabelText('加载更早历史')).toBeTruthy()
     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
       toJSON: () => ({}),
     })
     fireEvent.wheel(plot, { clientX: 50, deltaY: -1_000 })
-    expect(screen.queryByLabelText('Load earlier history')).toBeNull()
+    expect(screen.queryByLabelText('加载更早历史')).toBeNull()
     const domain = view.container.querySelector<HTMLElement>('[data-timeline-domain]')
     const domainWidth = domain?.style.getPropertyValue('--trajectory-domain-width')
     expect(domainWidth).not.toBe('100%')
@@ -813,9 +829,10 @@ describe('timeline projection', () => {
         mode="sequence"
         range={{ start: 2, end: 4 }}
         onRangeChange={onRangeChange}
+        t={tZh}
       />,
     )
-    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    const plot = screen.getByLabelText('时间线概览；水平拖动以聚焦事件')
 
     fireEvent.pointerDown(plot, { button: 2, clientX: 50, pointerId: 1 })
     expect(fireEvent.contextMenu(plot)).toBe(false)
@@ -832,9 +849,10 @@ describe('timeline projection', () => {
         mode="sequence"
         range={{ start: 2, end: 4 }}
         onRangeChange={onRangeChange}
+        t={tZh}
       />,
     )
-    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    const plot = screen.getByLabelText('时间线概览；水平拖动以聚焦事件')
     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
       toJSON: () => ({}),
@@ -862,9 +880,10 @@ describe('timeline projection', () => {
         mode="sequence"
         range={null}
         onRangeChange={onRangeChange}
+        t={tZh}
       />,
     )
-    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    const plot = screen.getByLabelText('时间线概览；水平拖动以聚焦事件')
     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
       toJSON: () => ({}),
@@ -878,6 +897,7 @@ describe('timeline projection', () => {
         range={null}
         selectedIndex={1}
         onRangeChange={onRangeChange}
+        t={tZh}
       />,
     )
     await vi.waitFor(() => {
@@ -894,6 +914,7 @@ describe('timeline projection', () => {
         range={null}
         selectedIndex={8}
         onRangeChange={onRangeChange}
+        t={tZh}
       />,
     )
     await vi.waitFor(() => {
@@ -912,9 +933,10 @@ describe('timeline projection', () => {
         mode="sequence"
         range={null}
         onRangeChange={onRangeChange}
+        t={tZh}
       />,
     )
-    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    const plot = screen.getByLabelText('时间线概览；水平拖动以聚焦事件')
     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
       toJSON: () => ({}),
@@ -988,6 +1010,7 @@ describe('timeline projection', () => {
         mode="sequence"
         range={null}
         onRangeChange={() => {}}
+        t={tZh}
       />,
     )
 
@@ -1148,7 +1171,7 @@ describe('TrajectoryView state', () => {
         setActualDuration={(value) => { firstDuration.set(value) }}
       />,
     )
-    const duration = screen.getByRole('button', { name: 'Use actual duration' })
+    const duration = screen.getByRole('button', { name: '按实际时长显示' })
 
     expect(duration.getAttribute('aria-pressed')).toBe('false')
     fireEvent.click(duration)
@@ -1163,7 +1186,7 @@ describe('TrajectoryView state', () => {
         setActualDuration={(value) => { restoredDuration.set(value) }}
       />,
     )
-    expect(screen.getByRole('button', { name: 'Use actual duration' }).getAttribute('aria-pressed'))
+    expect(screen.getByRole('button', { name: '按实际时长显示' }).getAttribute('aria-pressed'))
       .toBe('true')
   })
 
